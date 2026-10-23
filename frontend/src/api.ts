@@ -1,7 +1,6 @@
 import type { JobState } from "./types";
 
-const base = (import.meta.env.VITE_API_BASE ?? "").replace(/\/$/, "");
-
+const base = (import.meta.env.VITE_API_BASE || "https://pricepilot-uu1b.onrender.com").replace(/\/$/, "");
 async function readError(response: Response): Promise<string> {
   try {
     const body = (await response.json()) as { detail?: unknown };
