@@ -1,33 +1,134 @@
-# PricePilot rebuilt
+# PricePilot
 
-PricePilot compares live Indian shopping listings for one product, reads the two lowest reachable product pages, and separates guaranteed discounts from conditional benefits and post-purchase cashback.
+**AI-powered price comparison for Indian shopping --- compare listings
+and estimate the effective price after coupons, bank offers, exchange
+deals, and cashback.**
 
-This folder is a new implementation. It does not replace `pricepilot_improvized`.
+-   **Live demo:** https://pricepilot-lime-theta.vercel.app
+-   **GitHub repository:** https://github.com/shravya0306/pricepilot
+-   **Backend API:** https://pricepilot-uu1b.onrender.com
+-   **Author:** [Shravya H Somayaji](https://www.linkedin.com/in/shravya-somayaji-38b051357/) ·
+    [GitHub](https://github.com/shravya0306)
 
-## Stack
+> Note: Render's free instance may spin down after inactivity, so the
+> first request after a quiet period can take longer.
 
-- Frontend: React, TypeScript, Vite
-- Backend: Python, FastAPI
-- Search: Serper Shopping (`https://google.serper.dev/shopping`, India, English)
-- Product pages: ScraperAPI with JavaScript rendering, premium proxies, and `country_code=in`
-- Offer reading and the written recommendation: Google Gemini
+```{=html}
+<!-- Optional: add a screenshot at docs/screenshot.png after capturing a completed search. -->
+```
+```{=html}
+<!-- ![PricePilot screenshot](docs/screenshot.png) -->
+```
+## The problem
 
-API keys are read only by the backend from environment variables.
+A listed price is rarely the final price you pay. Product pages may
+advertise coupons, bank offers, exchange deals, and cashback, making it
+difficult to distinguish guaranteed discounts from benefits with
+conditions. PricePilot compares product listings and separates checkout
+discounts from conditional or post-purchase benefits.
 
-## Project layout
+## What it does
 
-```text
-pricepilot-rebuilt/
+-   Searches for product listings across Indian merchants using Google
+    Shopping results.
+-   Attempts to read the product pages of the two lowest-priced eligible
+    listings.
+-   Extracts bank offers, coupons, exchange offers, and cashback from
+    product-page text.
+-   Calculates checkout price and displays conditional benefits
+    separately.
+-   Generates a short recommendation comparing the deals.
+-   Supports stopping a search and viewing live progress logs.
+
+## Key design decision: AI reads; code calculates
+
+Language models can interpret messy offer text, but arithmetic and
+eligibility rules should be deterministic. PricePilot separates these
+responsibilities:
+
+1.  **Gemini extracts offer details** from product-page text.
+2.  **Python recalculates discounts** using the rules in `pricing.py`,
+    including caps, minimum-purchase requirements, eligibility, and
+    stacking. The model does not determine the final price.
+3.  **Scraped page content is treated as untrusted input** to reduce the
+    risk of prompt injection.
+
+Unclear offers, offers that do not meet minimum purchase requirements,
+and discounts that cannot be validated are skipped rather than guessed.
+
+### How prices are classified
+
+  -----------------------------------------------------------------------
+  Benefit                 Included in checkout    Notes
+                          price?                  
+  ----------------------- ----------------------- -----------------------
+  Guaranteed instant      Yes, according to the   Applied only when the
+  discount                implemented rules       offer is validated
+
+  Bank offers and other   No                      Shown separately;
+  conditional benefits                            combined pricing is
+                                                  shown only when
+                                                  compatibility is
+                                                  established
+
+  Exchange offers         No                      Require an eligible
+                                                  device; "up to" amounts
+                                                  are conditional
+
+  Cashback                No                      Shown separately as a
+                                                  post-purchase benefit
+  -----------------------------------------------------------------------
+
+## How a search works
+
+``` mermaid
+flowchart LR
+    A[React UI: enter product] --> B[FastAPI: create search job]
+    B --> C[Serper Shopping: find listings]
+    C --> D[ScraperAPI: fetch product pages]
+    D --> E[Gemini: extract offers]
+    E --> F[pricing.py: recalculate discounts]
+    F --> G[Gemini: write recommendation]
+    G --> H[UI polls job status and shows results]
+```
+
+## Tech stack
+
+  Layer                    Technology
+  ------------------------ --------------------------------------
+  Frontend                 React, TypeScript, Vite
+  Backend                  Python, FastAPI
+  Product search           Serper Shopping API
+  Product-page retrieval   ScraperAPI
+  AI                       Google Gemini
+  Testing                  pytest and frontend production build
+
+## Engineering details
+
+-   **Asynchronous jobs:** `POST /api/search` returns a job ID; the UI
+    polls `GET /api/jobs/{job_id}`; `POST /api/jobs/{job_id}/stop`
+    requests a stop.
+-   **Rate limiting:** the backend limits concurrent searches and can
+    return HTTP 429 when the limit is reached.
+-   **Secrets stay server-side:** API keys belong in backend environment
+    variables and local `.env` files, never in frontend code or GitHub.
+-   **Error handling:** invalid input and missing jobs return
+    appropriate API errors; provider failures are reported to the UI.
+
+## Project structure
+
+``` text
+pricepilot/
 ├── backend/
 │   ├── app/
-│   │   ├── main.py              # HTTP API
-│   │   ├── pricing.py           # Discount, cap, eligibility, and stacking rules
-│   │   ├── text_extract.py      # Offer text and JSON-LD from product HTML
+│   │   ├── main.py
+│   │   ├── pricing.py
+│   │   ├── text_extract.py
 │   │   └── services/
 │   │       ├── serper.py
 │   │       ├── scraper.py
 │   │       ├── gemini_client.py
-│   │       └── pipeline.py      # Search job
+│   │       └── pipeline.py
 │   ├── tests/
 │   ├── requirements.txt
 │   └── .env.example
@@ -37,85 +138,102 @@ pricepilot-rebuilt/
     └── .env.example
 ```
 
-## Configure
+## Getting started
 
-1. Create `backend/.env` from `backend/.env.example`.
-2. Set `GEMINI_API_KEY`, `SERPER_API_KEY`, and `SCRAPER_API_KEY`.
-3. Leave `frontend/.env` empty during local development. The Vite dev server proxies `/api` to `http://127.0.0.1:8001`.
+### Requirements
 
-Do not put API keys in frontend code or in `VITE_` variables.
+-   Python 3.11 or newer
+-   Node.js and npm
+-   API keys for Gemini, Serper, and ScraperAPI
 
-`GEMINI_MODEL` defaults to `models/gemini-2.5-flash-lite`, the model used by the original app.
+### 1. Backend
 
-## Install and run
+From the repository root:
 
-Use two terminals. Python 3.11 or newer is required. The commands below are for Windows PowerShell.
-
-Backend:
-
-```powershell
+``` powershell
 cd backend
-py -3 -m venv .venv
+python -m venv .venv
+# Windows PowerShell:
 .\.venv\Scripts\Activate.ps1
+# macOS/Linux instead:
+# source .venv/bin/activate
+
 pip install -r requirements.txt
-copy .env.example .env
-# Edit .env and add the three API keys.
+Copy-Item .env.example .env
+```
+
+Add your actual API keys to `backend/.env` using the variable names
+documented in `backend/.env.example`. Do not commit this file.
+
+Start the local API:
+
+``` powershell
 uvicorn app.main:app --reload --host 127.0.0.1 --port 8001
 ```
 
-Frontend:
+Health check: http://127.0.0.1:8001/api/health
 
-```powershell
+### 2. Frontend
+
+In a second terminal, from the repository root:
+
+``` powershell
 cd frontend
 npm install
 npm run dev
 ```
 
-Open `http://localhost:5173`.
+Open http://localhost:5173. In development, Vite proxies `/api` to the
+backend on port `8001`; leave `VITE_API_BASE` empty locally unless you
+intentionally configure a different API origin.
 
-The API health check is `http://127.0.0.1:8001/api/health`.
+### 3. Tests and build
 
-On this machine, Uvicorn’s default `127.0.0.1:8000` bind failed with Windows `WinError 10013` while another process already held that port. `127.0.0.1:8001` is permitted and is the port the frontend proxy uses.
+Run from the repository root:
 
-## What a search does
-
-1. `POST /api/search` with `{ "product": "..." }` starts a job and returns `{ "job_id": "..." }`.
-2. The backend asks Serper Shopping for up to five distinct merchants.
-3. It keeps listings with a readable price and an `http` or `https` link, cheapest first.
-4. It downloads product HTML through ScraperAPI until two pages succeed or the candidates run out.
-5. Gemini extracts bank offers, coupons, exchange offers, and cashback from that page text. The page is treated as untrusted data.
-6. The backend recalculates every discount. Gemini does not decide the final price.
-7. `GET /api/jobs/{job_id}` returns logs, deals, and, when two deals exist, a recommendation.
-8. `POST /api/jobs/{job_id}/stop` asks the job to stop before the next merchant or before the recommendation.
-
-Checkout price subtracts only the best guaranteed instant discount. These are not folded into that price:
-
-- Bank offers and other conditional benefits, unless both the coupon and the bank offer are explicitly combinable. A combined price is then shown separately.
-- Exchange offers, including "up to" amounts, because they need a qualifying device.
-- Cashback, which is estimated from the checkout price and labeled as post-purchase.
-
-Unclear offers, discounts that do not produce a positive price below the listed price, and offers below a stated minimum purchase are skipped and mentioned in the log.
-
-The dashboard keeps the original search, start, stop, live logs, two-deal comparison, purchase confirmation, and recommendation panel.
-
-## Test
-
-From `backend`, with the virtual environment active:
-
-```powershell
+``` powershell
+cd backend
 python -m pytest
-```
-
-From `frontend`:
-
-```powershell
+cd ..\frontend
 npm run build
 ```
 
-The automated tests do not call Serper, ScraperAPI, or Gemini. A passing test run does not prove that live credentials or merchant pages work. Run a search in the browser after the keys are configured to verify the live integrations.
+Automated tests do not necessarily verify live third-party API access.
+Run a real product search to confirm that the configured provider keys
+and integrations work.
 
-## API responses
+## Deployment
 
-Successful search creation returns HTTP 202. Job status is `running`, `completed`, `stopped`, or `failed`. Invalid product text returns HTTP 422. An unknown job returns HTTP 404. More than three running searches returns HTTP 429.
+-   **Frontend:** deployed on Vercel from the `frontend` directory.
+-   **Backend:** deployed as a Render Web Service from the `backend`
+    directory.
+-   **Frontend API setting:** set `VITE_API_BASE` in Vercel Production
+    to `https://pricepilot-uu1b.onrender.com`.
+-   **CORS:** the backend must allow the deployed frontend origin
+    `https://pricepilot-lime-theta.vercel.app`.
 
-Errors use FastAPI's `detail` field. Provider failures are reported as short messages. Query strings that would contain an API key are not returned to the browser.
+To publish changes, commit and push to the `main` branch. Render and
+Vercel are configured to auto-deploy from GitHub; check that each
+deployment succeeds, then test the live website.
+
+``` powershell
+git add .
+git commit -m "Describe your change"
+git push
+```
+
+## Limitations and future work
+
+-   Results depend on third-party APIs and merchant page layouts; some
+    pages may not be accessible and will be skipped.
+-   AI offer extraction may misread unusual wording. Ambiguous offers
+    are skipped rather than guessed.
+-   Prices change frequently; verify the final price and offer
+    conditions on the merchant's website before purchasing.
+-   Potential next steps: price history, price-drop alerts, caching to
+    reduce API calls, and broader merchant coverage.
+
+## Note
+
+This is an educational project. Use scraping responsibly and respect
+applicable merchant terms of service.
