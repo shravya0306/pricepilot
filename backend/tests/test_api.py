@@ -2,6 +2,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from app.config import PRODUCTION_FRONTEND_ORIGIN, Settings
 from app.main import app
 from app.state import JOBS, MAX_RUNNING_JOBS
 
@@ -140,3 +141,43 @@ def test_project_examples_and_frontend_do_not_contain_secret_keys():
     assert "AIza" not in source
     assert "api.scraperapi.com" not in source
     assert "google.serper.dev" not in source
+
+
+def test_production_origin_survives_a_localhost_only_setting():
+    settings = Settings(cors_origins="http://localhost:5173", _env_file=None)
+    assert settings.cors_origin_list[0] == "http://localhost:5173"
+    assert PRODUCTION_FRONTEND_ORIGIN in settings.cors_origin_list
+
+
+def test_production_frontend_can_call_the_api():
+    client = TestClient(app)
+    origin = PRODUCTION_FRONTEND_ORIGIN
+    health = client.get("/api/health", headers={"Origin": origin})
+    assert health.status_code == 200
+    assert health.headers["access-control-allow-origin"] == origin
+
+    preflight = client.options(
+        "/api/search",
+        headers={
+            "Origin": origin,
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type",
+        },
+    )
+    assert preflight.status_code == 200
+    assert preflight.headers["access-control-allow-origin"] == origin
+    assert "POST" in preflight.headers["access-control-allow-methods"]
+
+
+def test_unknown_origin_is_rejected():
+    client = TestClient(app)
+    response = client.options(
+        "/api/search",
+        headers={
+            "Origin": "https://evil.example",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type",
+        },
+    )
+    assert response.status_code == 400
+    assert "access-control-allow-origin" not in response.headers

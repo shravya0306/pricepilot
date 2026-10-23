@@ -1,6 +1,8 @@
 import type { JobState } from "./types";
 
-const base = (import.meta.env.VITE_API_BASE || "https://pricepilot-uu1b.onrender.com").replace(/\/$/, "");
+const PRODUCTION_API_BASE = "https://pricepilot-uu1b.onrender.com";
+const configuredBase = import.meta.env.VITE_API_BASE?.trim() ?? "";
+const base = (configuredBase || (import.meta.env.DEV ? "" : PRODUCTION_API_BASE)).replace(/\/$/, "");
 async function readError(response: Response): Promise<string> {
   try {
     const body = (await response.json()) as { detail?: unknown };
@@ -29,15 +31,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
         ...(init?.headers ?? {}),
       },
     });
-  } catch {
-    throw new Error("Cannot reach the PricePilot API. Start the backend on port 8001.");
+  } catch (err: unknown) {
+    const detail = err instanceof Error && err.message ? err.message : "network error";
+    const target = base || "the local /api proxy";
+    throw new Error(
+      `Could not reach the PricePilot API at ${target}${path}. The browser blocked the request or the service is offline. (${detail})`,
+    );
   }
   if (!response.ok) {
-    const message = await readError(response);
-    if (response.status >= 500 && message.startsWith("Request failed")) {
-      throw new Error("The PricePilot API is not responding. Start the backend on port 8001.");
-    }
-    throw new Error(message);
+    throw new Error(await readError(response));
   }
   return (await response.json()) as T;
 }
